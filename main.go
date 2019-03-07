@@ -6,26 +6,24 @@ import (
 	"github.com/diapco/votecube-crud/models"
 	_ "github.com/lib/pq"
 	"github.com/valyala/fasthttp"
+	"log"
 )
 
-func main() {
-	flag.Parse()
-
-}
+var (
+	addr     = flag.String("addr", ":10100", "TCP address to listen to")
+	compress = flag.Bool("compress", false, "Whether to enable transparent response compression")
+	//db          *sql.DB
+	//directionId sequence.Sequence
+)
 
 /**
-Should there be one process per operation?
 
-PROS:
+Create process (v1 - completely new poll, no batching):
 
-	Easier to scale up and down
-	Easier to see the bottlenecks at runtime
+1)	Read in the entire data structure
+2)	Create objects in reverse order (deepest dependencies first)
+3)  Return new Ids only datastructure that ties in the temporary UI Ids to the created ones
 
-CONS:
-
-	Harder to manage a larger number of processes (though should be automatable)
-
-Proceeding with splitting up of the processes
 */
 
 func requestHandler(ctx *fasthttp.RequestCtx) {
@@ -83,4 +81,19 @@ func requestHandler(ctx *fasthttp.RequestCtx) {
 	c.SetKey("cookie-name")
 	c.SetValue("cookie-value")
 	ctx.Response.Header.SetCookie(&c)
+}
+
+func main() {
+	flag.Parse()
+
+	//db = SetupDb()
+
+	h := requestHandler
+	//if *compress {
+	//	h = fasthttp.CompressHandler(h)
+	//}
+
+	if err := fasthttp.ListenAndServe(*addr, h); err != nil {
+		log.Fatalf("Error in ListenAndServe: %s", err)
+	}
 }
