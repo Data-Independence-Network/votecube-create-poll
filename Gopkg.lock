@@ -2,6 +2,14 @@
 
 
 [[projects]]
+  branch = "master"
+  digest = "1:c27f4260e14ea094a47b06fc1ec1b792c28d416989060ba5dfe8fc34cc4ba2cb"
+  name = "github.com/gammazero/deque"
+  packages = ["."]
+  pruneopts = ""
+  revision = "2afb3858e9c73b567e0e05ea79906f4e1138bd4e"
+
+[[projects]]
   digest = "1:064eb4d2277fb6a23944380644268b99acc0ae0576c72d0b6d7288d3c2fe4a1e"
   name = "github.com/klauspost/compress"
   packages = [
@@ -56,6 +64,7 @@
   analyzer-name = "dep"
   analyzer-version = 1
   input-imports = [
+    "github.com/gammazero/deque",
     "github.com/lib/pq",
     "github.com/valyala/fasthttp",
   ]
