@@ -3,8 +3,8 @@ package main
 import "github.com/diapco/votecube-crud/deserialize"
 
 type RequestBatch struct {
-	Data []deserialize.Request
-	Add  chan deserialize.Request
+	Data []*deserialize.CreatePollRequest
+	Add  chan *deserialize.CreatePollRequest
 }
 
 func (batch *RequestBatch) accept() {

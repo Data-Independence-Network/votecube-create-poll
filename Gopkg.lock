@@ -33,6 +33,22 @@
   version = "v1.0.0"
 
 [[projects]]
+  digest = "1:1d7e1867c49a6dd9856598ef7c3123604ea3daabf5b83f303ff457bcbc410b1d"
+  name = "github.com/pkg/errors"
+  packages = ["."]
+  pruneopts = ""
+  revision = "ba968bfe8b2f7e042a574c888954fccecfa385b4"
+  version = "v0.8.1"
+
+[[projects]]
+  digest = "1:ae3493c780092be9d576a1f746ab967293ec165e8473425631f06658b6212afc"
+  name = "github.com/spf13/cast"
+  packages = ["."]
+  pruneopts = ""
+  revision = "8c9545af88b134710ab1cd196795e7f2388358d7"
+  version = "v1.3.0"
+
+[[projects]]
   digest = "1:857a9ecd5cb13379ecc8f798f6e6b6b574c98b9355657d91e068275f1120aaf7"
   name = "github.com/valyala/bytebufferpool"
   packages = ["."]
@@ -52,12 +68,37 @@
   revision = "ed3793a1e1602989ba50bd20823e8521a4da84af"
   version = "v1.2.0"
 
+[[projects]]
+  branch = "master"
+  digest = "1:bb57d77118b8ecb69550dfcb4c5980ea5e6ba91bed4d80f82180449a679322f3"
+  name = "github.com/volatiletech/inflect"
+  packages = ["."]
+  pruneopts = ""
+  revision = "e7201282ae8da26cd97aed2e516f75c0bd91bb93"
+
+[[projects]]
+  digest = "1:7bdc244c12fbdee05c975f0e352e343d562e5b7f62b2719c0d589b8870faffe0"
+  name = "github.com/volatiletech/sqlboiler"
+  packages = [
+    "boil",
+    "drivers",
+    "importers",
+    "queries",
+    "queries/qm",
+    "queries/qmhelper",
+    "strmangle",
+  ]
+  pruneopts = ""
+  revision = "df8550538fefdf62f2520e74dbfad73f1bcb84a2"
+  version = "v3.2.0"
+
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
   input-imports = [
     "github.com/lib/pq",
     "github.com/valyala/fasthttp",
+    "github.com/volatiletech/sqlboiler/queries/qm",
   ]
   solver-name = "gps-cdcl"
   solver-version = 1

@@ -1,9 +1,15 @@
 package main
 
 import (
+	"context"
+	"database/sql"
 	"flag"
+	"fmt"
+	"github.com/diapco/votecube-crud/deserialize"
+	"github.com/diapco/votecube-crud/models"
 	_ "github.com/lib/pq"
 	"github.com/valyala/fasthttp"
+	"github.com/volatiletech/sqlboiler/queries/qm"
 	"log"
 )
 
@@ -28,14 +34,14 @@ Create process (v1 - completely new poll, no batching):
 func requestHandler(ctx *fasthttp.RequestCtx) {
 
 	if ctx.IsPut() {
-		request := Request{
-			ctx:  ctx,
-			done: make(chan bool),
+		request := deserialize.CreatePollRequest{
+			Ctx:  ctx,
+			Done: make(chan bool),
 		}
 
-		proc.batch.Add <- request
+		proc.batch.Add <- &request
 
-		<-request.done
+		<-request.Done
 		//ctx.PostBody()
 		//var json = jsoniter.ConfigCompatibleWithStandardLibrary
 
@@ -93,7 +99,27 @@ func requestHandler(ctx *fasthttp.RequestCtx) {
 func main() {
 	flag.Parse()
 
-	proc.startProcessing()
+	db, err := sql.Open("postgres", `postgresql://root@localhost:26257/votecube?sslmode=disable`)
+	if err != nil {
+		panic(err)
+	}
+	numInitialDbRequests := 4
+	initialDbRequestsDone := make(chan bool, numInitialDbRequests)
+	locationMaps := deserialize.LocationMaps{}
+
+	go getContinents(&locationMaps, db, initialDbRequestsDone)
+	go getCountries(&locationMaps, db, initialDbRequestsDone)
+	go getStates(&locationMaps, db, initialDbRequestsDone)
+	go getTowns(&locationMaps, db, initialDbRequestsDone)
+
+	numCompletedInitialDbRequests := 0
+	for range initialDbRequestsDone {
+		numCompletedInitialDbRequests++
+		if numCompletedInitialDbRequests == numInitialDbRequests {
+			break
+		}
+	}
+	proc.startProcessing(&locationMaps)
 
 	//db = SetupDb()
 
@@ -105,4 +131,88 @@ func main() {
 	if err := fasthttp.ListenAndServe(*addr, h); err != nil {
 		log.Fatalf("Error in ListenAndServe: %s", err)
 	}
+}
+
+func getContinents(maps *deserialize.LocationMaps, db *sql.DB, done chan bool) {
+	continents, err := models.Continents(
+		qm.Select(models.ContinentColumns.ContinentID),
+	).All(context.Background(), db)
+
+	if err != nil {
+		fmt.Errorf("error querying Continents")
+		panic(err)
+	}
+
+	continentMap := make(map[int64]models.Continent)
+
+	for _, continent := range continents {
+		continentMap[continent.ContinentID] = *continent
+	}
+
+	maps.ContinentMap = continentMap
+
+	done <- true
+}
+
+func getCountries(maps *deserialize.LocationMaps, db *sql.DB, done chan bool) {
+	countries, err := models.Countries(
+		qm.Select(models.CountryColumns.CountryID, models.CountryColumns.ContinentID),
+	).All(context.Background(), db)
+
+	if err != nil {
+		fmt.Errorf("error querying Countries")
+		panic(err)
+	}
+
+	countryMap := make(map[int64]models.Country)
+
+	for _, country := range countries {
+		countryMap[country.ContinentID] = *country
+	}
+
+	maps.CountryMap = countryMap
+
+	done <- true
+}
+
+func getStates(maps *deserialize.LocationMaps, db *sql.DB, done chan bool) {
+	states, err := models.States(
+		qm.Select(models.StateColumns.StateID, models.StateColumns.CountryID),
+	).All(context.Background(), db)
+
+	if err != nil {
+		fmt.Errorf("error querying States")
+		panic(err)
+	}
+
+	stateMap := make(map[int64]models.State)
+
+	for _, state := range states {
+		stateMap[state.StateID] = *state
+	}
+
+	maps.StateMap = stateMap
+
+	done <- true
+}
+
+func getTowns(maps *deserialize.LocationMaps, db *sql.DB, done chan bool) {
+	towns, err := models.Towns(
+		qm.Select(models.TownColumns.TownID, models.TownColumns.StateID),
+	).All(context.Background(), db)
+
+	if err != nil {
+		fmt.Errorf("error querying Towns")
+		panic(err)
+	}
+
+	townMap := make(map[int64]models.Town)
+
+	for _, town := range towns {
+		townMap[town.TownID] = *town
+	}
+
+	maps.TownMap = townMap
+
+	done <- true
 }
