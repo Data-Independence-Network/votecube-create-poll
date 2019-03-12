@@ -103,14 +103,16 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	numInitialDbRequests := 4
+	numInitialDbRequests := 5
 	initialDbRequestsDone := make(chan bool, numInitialDbRequests)
 	locationMaps := deserialize.LocationMaps{}
+	var theThemeMap *map[int64]models.Theme
 
 	go getContinents(&locationMaps, db, initialDbRequestsDone)
 	go getCountries(&locationMaps, db, initialDbRequestsDone)
 	go getStates(&locationMaps, db, initialDbRequestsDone)
 	go getTowns(&locationMaps, db, initialDbRequestsDone)
+	go getThemes(theThemeMap, db, initialDbRequestsDone)
 
 	numCompletedInitialDbRequests := 0
 	for range initialDbRequestsDone {
@@ -119,7 +121,7 @@ func main() {
 			break
 		}
 	}
-	proc.startProcessing(&locationMaps)
+	proc.startProcessing(&locationMaps, theThemeMap)
 
 	//db = SetupDb()
 
@@ -213,6 +215,27 @@ func getTowns(maps *deserialize.LocationMaps, db *sql.DB, done chan bool) {
 	}
 
 	maps.TownMap = townMap
+
+	done <- true
+}
+
+func getThemes(theThemeMap *map[int64]models.Theme, db *sql.DB, done chan bool) {
+	themes, err := models.Themes(
+		qm.Select(models.ThemeColumns.ThemeID),
+	).All(context.Background(), db)
+
+	if err != nil {
+		fmt.Errorf("error querying Towns")
+		panic(err)
+	}
+
+	themeMap := make(map[int64]models.Theme)
+
+	for _, theme := range themes {
+		themeMap[theme.ThemeID] = *theme
+	}
+
+	theThemeMap = &themeMap
 
 	done <- true
 }
