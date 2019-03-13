@@ -1,17 +1,13 @@
 package main
 
 import (
-	"context"
 	"database/sql"
-	"fmt"
 	"github.com/diapco/votecube-crud/deserialize"
 	"github.com/diapco/votecube-crud/deserialize/model/poll"
 	"github.com/diapco/votecube-crud/models"
+	"github.com/diapco/votecube-crud/sequence"
+	"github.com/diapco/votecube-crud/serialize"
 	"github.com/valyala/fasthttp"
-	"github.com/volatiletech/sqlboiler/queries/qm"
-	"log"
-	"strconv"
-	"strings"
 	"time"
 )
 
@@ -120,60 +116,9 @@ func (proc *RequestProcessor) processRequestBatch(
 		request.Poll = aPoll
 	}
 
-	var labelNames = make([]interface{}, len(ctxMapByLabelName))
-	i := 0
-	for labelName, _ := range ctxMapByLabelName {
-		labelNames[i] = labelName
-		i++
-	}
-
-	existingLabels, err := models.Labels(
-		qm.Select(models.LabelColumns.LabelID, models.LabelColumns.Name),
-		qm.WhereIn(models.LabelColumns.Name+" in ?", labelNames...),
-	).All(context.Background(), db)
-
-	if err != nil {
-		denyBatch(batch, err)
-		return
-	}
-
-	for _, existingLabel := range existingLabels {
-		for _, ctx := range ctxMapByLabelName[existingLabel.Name] {
-			_, labelAlreadySpecified := ctx.IdRefs.LabelIdRefs[existingLabel.LabelID]
-			if labelAlreadySpecified {
-				request := batch.Data[ctx.Index]
-				if request == nil {
-					continue
-				}
-				request.Ctx.SetStatusCode(fasthttp.StatusBadRequest)
-				request.Done <- true
-				batch.Data[ctx.Index] = nil
-			}
-			pollLabel, _ := ctx.RequestNewLabelMapByName[existingLabel.Name]
-			pollLabel.R.Label = nil
-			pollLabel.LabelID = existingLabel.LabelID
-		}
-	}
-
 	verifyAllIds(batch, &idRefs)
 
-	for _, request := range batch.Data {
-		if request == nil {
-			continue
-		}
-		pollsLabels := request.Poll.R.PollsLabels
-		if pollsLabels != nil {
-			continue
-		}
-		for _, pollLabel := range pollsLabels {
-			pollLabels = append(pollLabels, pollLabel)
-
-			if pollLabel.LabelID == 0 {
-
-				labels = append(labels, pollLabel.R.Label)
-			}
-		}
-	}
+	VerifyLabels(db, batch, &ctxMapByLabelName)
 
 	/**
 	At this point:
@@ -264,7 +209,77 @@ func (proc *RequestProcessor) processRequestBatch(
 
 	numPolls := len(validRequests)
 
-	pollSeqCursor := db.PollId.GetCursor(numPolls)
+	pollSeqCursor := sequence.PollId.GetCursor(len(polls))
+	pollContinentSeqCursor := sequence.PollContinentId.GetCursor(len(pollContinents))
+	pollCountrySeqCursor := sequence.PollCountryId.GetCursor(len(pollCountries))
+	pollStateSeqCursor := sequence.PollStateId.GetCursor(len(pollStates))
+	pollTownSeqCursor := sequence.PollStateId.GetCursor(len(pollTowns))
+	pollDimDirSeqCursor := sequence.PollStateId.GetCursor(len(pollDimDirs))
+	dimDirSeqCursor := sequence.PollStateId.GetCursor(len(dimensionDirections))
+	dimensionSeqCursor := sequence.PollStateId.GetCursor(len(dimensions))
+	directionSeqCursor := sequence.PollStateId.GetCursor(len(directions))
+	pollLabelSeqCursor := sequence.PollStateId.GetCursor(len(pollLabels))
+	labelSeqCursor := sequence.PollStateId.GetCursor(len(labels))
+
+	for _, poll := range polls {
+		poll.PollID = pollSeqCursor.Next()
+	}
+	for _, pollContinent := range pollContinents {
+		pollContinent.PollContinentID = pollContinentSeqCursor.Next()
+	}
+	for _, pollCountry := range pollCountries {
+		pollCountry.PollCountryID = pollCountrySeqCursor.Next()
+	}
+	for _, pollState := range pollStates {
+		pollState.PollStateID = pollStateSeqCursor.Next()
+	}
+	for _, pollTown := range pollTowns {
+		pollTown.PollTownID = pollTownSeqCursor.Next()
+	}
+	for _, pollDimDir := range pollDimDirs {
+		pollDimDir.PollDimensionDirectionID = pollDimDirSeqCursor.Next()
+	}
+	for _, dimensionDirection := range dimensionDirections {
+		dimensionDirection.DimensionDirectionID = dimDirSeqCursor.Next()
+	}
+	for _, dimension := range dimensions {
+		dimension.DimensionID = dimensionSeqCursor.Next()
+	}
+	for _, direction := range directions {
+		direction.DirectionID = directionSeqCursor.Next()
+	}
+	for _, pollLabel := range pollLabels {
+		pollLabel.PollLabelID = pollLabelSeqCursor.Next()
+	}
+	for _, label := range labels {
+		label.LabelID = labelSeqCursor.Next()
+	}
+
+	pollValues := []interface{}{}
+	pollContinentValues := []interface{}{}
+	pollCountryValues := []interface{}{}
+	pollStateValues := []interface{}{}
+	pollTownValues := []interface{}{}
+	pollDimDirValues := []interface{}{}
+	dimDirValues := []interface{}{}
+	dimensionValues := []interface{}{}
+	directionValues := []interface{}{}
+	pollLabelValues := []interface{}{}
+	labelValues := []interface{}{}
+
+	pollSqlStr := "INSERT INTO " + models.TableNames.Polls + "(" +
+		models.PollColumns.PollID + ", " +
+		models.PollColumns.PollDescription +
+		" ) VALUES %s"
+
+	for _, request := range batch.Data {
+		if request == nil {
+			continue
+		}
+
+		request.ResponseData = append(request.ResponseData, serialize.WNum(request.Poll.PollID))
+		request.Poll
+	}
 
 	vals := []interface{}{}
 	for _, row := range data {
@@ -277,30 +292,4 @@ func (proc *RequestProcessor) processRequestBatch(
 	//Prepare and execute the statement
 	stmt, _ := db.Prepare(sqlStr)
 	res, _ := stmt.Exec(vals...)
-}
-
-func ReplaceSQL(stmt, pattern string, len int) string {
-	pattern += ","
-	stmt = fmt.Sprintf(stmt, strings.Repeat(pattern, len))
-	n := 0
-	for strings.IndexByte(stmt, '?') != -1 {
-		n++
-		param := "$" + strconv.Itoa(n)
-		stmt = strings.Replace(stmt, "?", param, 1)
-	}
-	return strings.TrimSuffix(stmt, ",")
-}
-
-func denyBatch(
-	batch *RequestBatch,
-	err error,
-) {
-	log.Fatal(err)
-	for _, request := range batch.Data {
-		if request == nil {
-			continue
-		}
-		request.Ctx.SetStatusCode(fasthttp.StatusInternalServerError)
-		request.Done <- true
-	}
 }
