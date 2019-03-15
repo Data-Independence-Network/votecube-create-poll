@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"database/sql"
-	"fmt"
 	"github.com/diapco/votecube-crud/deserialize"
 	"github.com/diapco/votecube-crud/models"
 	"github.com/valyala/fasthttp"
@@ -18,28 +17,34 @@ Locations have been verified (including their internal relations)
 Id References have been identified
 
 Next step:
-	Query for Id references (Dim, DimDir, Dir, Label)
+	Query for Id references (Factor, FactorPosition, Position, Label)
 	Check requests and verify that all ids exist
 	Invalidate requests that reference invalid Ids
 */
 func verifyAllIds(
 	batch *RequestBatch,
-	idRefs *deserialize.CreatePollIdReferences) {
+	idRefs *deserialize.CreatePollIdReferences,
+) error {
 
 	db, err := sql.Open("postgres", `postgresql://root@localhost:26257/votecube?sslmode=disable`)
 	if err != nil {
-		panic(err)
+		return err
 	}
-	numIdVerificationDbRequests := 4
-	idVerificationDbRequestsDone := make(chan bool, numIdVerificationDbRequests)
 
-	go verifyDimensionIds(idRefs, db, idVerificationDbRequestsDone)
-	go verifyDimensionDirectionIds(idRefs, db, idVerificationDbRequestsDone)
-	go verifyDirectionIds(idRefs, db, idVerificationDbRequestsDone)
+	numIdVerificationDbRequests := 4
+	idVerificationDbRequestsDone := make(chan error, numIdVerificationDbRequests)
+
+	go verifyFactorIds(idRefs, db, idVerificationDbRequestsDone)
+	go verifyFactorPositionIds(idRefs, db, idVerificationDbRequestsDone)
+	go verifyPositionIds(idRefs, db, idVerificationDbRequestsDone)
 	go verifyLabelIds(idRefs, db, idVerificationDbRequestsDone)
 
 	numCompletedInitialDbRequests := 0
-	for range idVerificationDbRequestsDone {
+	for err = range idVerificationDbRequestsDone {
+		if err != nil {
+			return err
+		}
+
 		numCompletedInitialDbRequests++
 		if numCompletedInitialDbRequests == numIdVerificationDbRequests {
 			break
@@ -47,93 +52,95 @@ func verifyAllIds(
 	}
 
 	denyRequestsWithInvalidIds(batch.Data, idRefs)
+
+	return nil
 }
 
-func verifyDimensionIds(
+func verifyFactorIds(
 	idRefs *deserialize.CreatePollIdReferences,
 	db *sql.DB,
-	done chan bool) {
+	done chan error) {
 
-	dimIds := make([]interface{}, len(idRefs.DimIdRefs))
-	for dimId := range idRefs.DimIdRefs {
-		dimIds = append(dimIds, dimId)
+	factorIds := make([]interface{}, len(idRefs.FactorIdRefs))
+	for factorId := range idRefs.FactorIdRefs {
+		factorIds = append(factorIds, factorId)
 	}
 
-	dimensions, err := models.Dimensions(
-		qm.Select(models.DimensionColumns.DimensionID),
-		qm.WhereIn(models.DimensionColumns.DimensionID+" in ?", dimIds),
+	factors, err := models.Factors(
+		qm.Select(models.FactorColumns.FactorID),
+		qm.WhereIn(models.FactorColumns.FactorID+" in ?", factorIds),
 	).All(context.Background(), db)
 
 	if err != nil {
-		fmt.Errorf("error querying Dimensions")
-		panic(err)
+		done <- err
+		return
 	}
 
-	for _, dimension := range dimensions {
-		delete(idRefs.DimIdRefs, dimension.DimensionID)
+	for _, factor := range factors {
+		delete(idRefs.FactorIdRefs, factor.FactorID)
 	}
 
-	done <- true
+	done <- nil
 }
 
-func verifyDimensionDirectionIds(
+func verifyFactorPositionIds(
 	idRefs *deserialize.CreatePollIdReferences,
 	db *sql.DB,
-	done chan bool) {
+	done chan error) {
 
-	dimDirIds := make([]interface{}, len(idRefs.DimDirIdRefs))
-	for dimDirId := range idRefs.DimDirIdRefs {
-		dimDirIds = append(dimDirIds, dimDirId)
+	factorPositionIds := make([]interface{}, len(idRefs.FactorPositionIdRefs))
+	for factorPositionId := range idRefs.FactorPositionIdRefs {
+		factorPositionIds = append(factorPositionIds, factorPositionId)
 	}
 
-	dimensionDirections, err := models.DimensionDirections(
-		qm.Select(models.DimensionDirectionColumns.DimensionDirectionID),
-		qm.WhereIn(models.DimensionDirectionColumns.DimensionDirectionID+" in ?", dimDirIds),
+	factorPositions, err := models.FactorPositions(
+		qm.Select(models.FactorPositionColumns.FactorPositionID),
+		qm.WhereIn(models.FactorPositionColumns.FactorPositionID+" in ?", factorPositionIds),
 	).All(context.Background(), db)
 
 	if err != nil {
-		fmt.Errorf("error querying DimensionDirections")
-		panic(err)
+		done <- err
+		return
 	}
 
-	for _, dimensionDirection := range dimensionDirections {
-		delete(idRefs.DimDirIdRefs, dimensionDirection.DimensionDirectionID)
+	for _, factorPosition := range factorPositions {
+		delete(idRefs.FactorPositionIdRefs, factorPosition.FactorPositionID)
 	}
 
-	done <- true
+	done <- nil
 }
 
-func verifyDirectionIds(
+func verifyPositionIds(
 	idRefs *deserialize.CreatePollIdReferences,
 	db *sql.DB,
-	done chan bool) {
+	done chan error) {
 
-	dirIds := make([]interface{}, len(idRefs.DirIdRefs))
-	for dirId := range idRefs.DirIdRefs {
-		dirIds = append(dirIds, dirId)
+	positionIds := make([]interface{}, len(idRefs.PositionIdRefs))
+	for positionId := range idRefs.PositionIdRefs {
+		positionIds = append(positionIds, positionId)
 	}
 
-	directions, err := models.Directions(
-		qm.Select(models.DirectionColumns.DirectionID),
-		qm.WhereIn(models.DirectionColumns.DirectionID+" in ?", dirIds),
+	positions, err := models.Positions(
+		qm.Select(models.PositionColumns.PositionID),
+		qm.WhereIn(models.PositionColumns.PositionID+" in ?", positionIds),
 	).All(context.Background(), db)
 
 	if err != nil {
-		fmt.Errorf("error querying Directions")
-		panic(err)
+		done <- err
+		return
 	}
 
-	for _, direction := range directions {
-		delete(idRefs.DirIdRefs, direction.DirectionID)
+	for _, position := range positions {
+		delete(idRefs.PositionIdRefs, position.PositionID)
 	}
 
-	done <- true
+	done <- nil
 }
 
 func verifyLabelIds(
 	idRefs *deserialize.CreatePollIdReferences,
 	db *sql.DB,
-	done chan bool) {
+	done chan error) {
 
 	labelIds := make([]interface{}, len(idRefs.LabelIdRefs))
 	for labelId := range idRefs.LabelIdRefs {
@@ -146,23 +153,23 @@ func verifyLabelIds(
 	).All(context.Background(), db)
 
 	if err != nil {
-		fmt.Errorf("error querying Labels")
-		panic(err)
+		done <- err
+		return
 	}
 
 	for _, label := range labels {
 		delete(idRefs.LabelIdRefs, label.LabelID)
 	}
 
-	done <- true
+	done <- nil
 }
 
 func denyRequestsWithInvalidIds(
 	data []*deserialize.CreatePollRequest,
 	idRefs *deserialize.CreatePollIdReferences) {
-	denyRequestsWithInvalidIdsForIdType(data, idRefs.DimDirIdRefs)
-	denyRequestsWithInvalidIdsForIdType(data, idRefs.DimIdRefs)
-	denyRequestsWithInvalidIdsForIdType(data, idRefs.DirIdRefs)
+	denyRequestsWithInvalidIdsForIdType(data, idRefs.FactorPositionIdRefs)
+	denyRequestsWithInvalidIdsForIdType(data, idRefs.FactorIdRefs)
+	denyRequestsWithInvalidIdsForIdType(data, idRefs.PositionIdRefs)
 	denyRequestsWithInvalidIdsForIdType(data, idRefs.LabelIdRefs)
 }
 

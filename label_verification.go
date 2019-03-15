@@ -13,7 +13,7 @@ func VerifyLabels(
 	db *sql.DB,
 	batch *RequestBatch,
 	ctxMapByLabelName *map[string][]*deserialize.CreatePollDeserializeContext,
-) {
+) error {
 
 	var labelNames = make([]interface{}, len(*ctxMapByLabelName))
 	i := 0
@@ -28,8 +28,7 @@ func VerifyLabels(
 	).All(context.Background(), db)
 
 	if err != nil {
-		denyBatch(batch, err)
-		return
+		return err
 	}
 
 	for _, existingLabel := range existingLabels {
@@ -49,4 +48,6 @@ func VerifyLabels(
 			pollLabel.LabelID = existingLabel.LabelID
 		}
 	}
+
+	return nil
 }

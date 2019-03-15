@@ -5,8 +5,6 @@ import (
 	"github.com/diapco/votecube-crud/deserialize"
 	"github.com/diapco/votecube-crud/deserialize/model/poll"
 	"github.com/diapco/votecube-crud/models"
-	"github.com/diapco/votecube-crud/sequence"
-	"github.com/diapco/votecube-crud/serialize"
 	"github.com/valyala/fasthttp"
 	"time"
 )
@@ -46,19 +44,81 @@ func (proc *RequestProcessor) processRequestBatch(
 
 	db, err := sql.Open("postgres", `postgresql://root@localhost:26257/votecube?sslmode=disable`)
 	if err != nil {
-		denyBatch(batch, err)
+		denyBatch(batch, err, db, nil)
 		return
 	}
 
+	idRefs, ctxMapByLabelName := deserializeCreatePollRequests(
+		batch,
+		locMaps,
+		themeMap,
+	)
+
+	err = verifyAllIds(batch, &idRefs)
+	if err != nil {
+		denyBatch(batch, err, db, nil)
+		return
+	}
+
+	err = VerifyLabels(db, batch, &ctxMapByLabelName)
+	if err != nil {
+		denyBatch(batch, err, db, nil)
+		return
+	}
+
+	/**
+	At this point:
+	All invalid requests have been filtered out
+
+	Next step:
+	Populate New Sequences
+	Bulk Create records
+	Write the new sequences in response to notify the client
+	*/
+
+	recordArrays, validRequests := MoveRecordsToArrays(batch)
+
+	err = AssignSeqValues(&recordArrays)
+	if err != nil {
+		denyBatch(batch, err, db, nil)
+		return
+	}
+
+	PopulateResponseAndCrossReferences(&validRequests)
+
+	err = InsertRecords(&recordArrays, db)
+	if err != nil {
+		denyBatch(batch, err, db, nil)
+		return
+	}
+
+	db.Close()
+
+	for _, request := range batch.Data {
+		if request == nil {
+			continue
+		}
+
+		request.Ctx.SetBody(*request.ResponseData)
+		request.Ctx.SetStatusCode(fasthttp.StatusCreated)
+		request.Done <- true
+	}
+}
+
+func deserializeCreatePollRequests(
+	batch *RequestBatch,
+	locMaps *deserialize.LocationMaps,
+	themeMap *map[int64]models.Theme,
+) (deserialize.CreatePollIdReferences, map[string][]*deserialize.CreatePollDeserializeContext) {
 	now := time.Now()
 
 	tomorrow := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
 
 	idRefs := deserialize.CreatePollIdReferences{
-		DimDirIdRefs: make(map[int64]map[int]*deserialize.CreatePollRequest),
-		DimIdRefs:    make(map[int64]map[int]*deserialize.CreatePollRequest),
-		DirIdRefs:    make(map[int64]map[int]*deserialize.CreatePollRequest),
-		LabelIdRefs:  make(map[int64]map[int]*deserialize.CreatePollRequest),
+		FactorPositionIdRefs: make(map[int64]map[int]*deserialize.CreatePollRequest),
+		FactorIdRefs:         make(map[int64]map[int]*deserialize.CreatePollRequest),
+		PositionIdRefs:       make(map[int64]map[int]*deserialize.CreatePollRequest),
+		LabelIdRefs:          make(map[int64]map[int]*deserialize.CreatePollRequest),
 	}
 
 	var ctxMapByLabelName = make(map[string][]*deserialize.CreatePollDeserializeContext)
@@ -116,180 +176,5 @@ func (proc *RequestProcessor) processRequestBatch(
 		request.Poll = aPoll
 	}
 
-	verifyAllIds(batch, &idRefs)
-
-	VerifyLabels(db, batch, &ctxMapByLabelName)
-
-	/**
-	At this point:
-	All invalid requests have been filtered out
-
-	Next step:
-	Populate New Sequences
-	Bulk Create records
-	Write the new sequences in response to notify the client
-	*/
-
-	var validRequests []*deserialize.CreatePollRequest
-	//i := -1
-
-	var polls []*models.Poll
-	var pollContinents []*models.PollsContinent
-	var pollCountries []*models.PollsCountry
-	var pollStates []*models.PollsState
-	var pollTowns []*models.PollsTown
-	var pollDimDirs []*models.PollsDimensionsDirection
-	var dimensionDirections []*models.DimensionDirection
-	var dimensions []*models.Dimension
-	var directions []*models.Direction
-	var pollLabels []*models.PollsLabel
-	var labels []*models.Label
-
-	for _, request := range batch.Data {
-		if request == nil {
-			continue
-		}
-		validRequests = append(validRequests, request)
-		//i = i + 1
-		//request.Index = i
-
-		poll := request.Poll
-		polls = append(polls, &poll)
-
-		for _, pollContinent := range poll.R.PollsContinents {
-			pollContinents = append(pollContinents, pollContinent)
-		}
-		pollsCountries := poll.R.PollsCountries
-		if pollsCountries != nil {
-			for _, pollCountry := range pollsCountries {
-				pollCountries = append(pollCountries, pollCountry)
-			}
-		}
-		pollsStates := poll.R.PollsStates
-		if pollsStates != nil {
-			for _, pollState := range pollsStates {
-				pollStates = append(pollStates, pollState)
-			}
-		}
-		pollsTowns := poll.R.PollsTowns
-		if pollsTowns != nil {
-			for _, pollTown := range pollsTowns {
-				pollTowns = append(pollTowns, pollTown)
-			}
-		}
-
-		for _, pollDimDir := range poll.R.PollsDimensionsDirections {
-			pollDimDirs = append(pollDimDirs, pollDimDir)
-
-			if pollDimDir.DimensionDirectionID == 0 {
-				dimensionDirection := pollDimDir.R.DimensionDirection
-				dimensionDirections = append(dimensionDirections, dimensionDirection)
-
-				if dimensionDirection.DimensionID == 0 {
-					dimensions = append(dimensions, dimensionDirection.R.Dimension)
-				}
-				if dimensionDirection.DirectionID == 0 {
-					directions = append(directions, dimensionDirection.R.Direction)
-				}
-			}
-		}
-
-		pollsLabels := poll.R.PollsLabels
-		if pollsLabels != nil {
-			for _, pollLabel := range pollsLabels {
-				pollLabels = append(pollLabels, pollLabel)
-
-				if pollLabel.LabelID == 0 {
-
-					labels = append(labels, pollLabel.R.Label)
-				}
-			}
-		}
-	}
-
-	numPolls := len(validRequests)
-
-	pollSeqCursor := sequence.PollId.GetCursor(len(polls))
-	pollContinentSeqCursor := sequence.PollContinentId.GetCursor(len(pollContinents))
-	pollCountrySeqCursor := sequence.PollCountryId.GetCursor(len(pollCountries))
-	pollStateSeqCursor := sequence.PollStateId.GetCursor(len(pollStates))
-	pollTownSeqCursor := sequence.PollStateId.GetCursor(len(pollTowns))
-	pollDimDirSeqCursor := sequence.PollStateId.GetCursor(len(pollDimDirs))
-	dimDirSeqCursor := sequence.PollStateId.GetCursor(len(dimensionDirections))
-	dimensionSeqCursor := sequence.PollStateId.GetCursor(len(dimensions))
-	directionSeqCursor := sequence.PollStateId.GetCursor(len(directions))
-	pollLabelSeqCursor := sequence.PollStateId.GetCursor(len(pollLabels))
-	labelSeqCursor := sequence.PollStateId.GetCursor(len(labels))
-
-	for _, poll := range polls {
-		poll.PollID = pollSeqCursor.Next()
-	}
-	for _, pollContinent := range pollContinents {
-		pollContinent.PollContinentID = pollContinentSeqCursor.Next()
-	}
-	for _, pollCountry := range pollCountries {
-		pollCountry.PollCountryID = pollCountrySeqCursor.Next()
-	}
-	for _, pollState := range pollStates {
-		pollState.PollStateID = pollStateSeqCursor.Next()
-	}
-	for _, pollTown := range pollTowns {
-		pollTown.PollTownID = pollTownSeqCursor.Next()
-	}
-	for _, pollDimDir := range pollDimDirs {
-		pollDimDir.PollDimensionDirectionID = pollDimDirSeqCursor.Next()
-	}
-	for _, dimensionDirection := range dimensionDirections {
-		dimensionDirection.DimensionDirectionID = dimDirSeqCursor.Next()
-	}
-	for _, dimension := range dimensions {
-		dimension.DimensionID = dimensionSeqCursor.Next()
-	}
-	for _, direction := range directions {
-		direction.DirectionID = directionSeqCursor.Next()
-	}
-	for _, pollLabel := range pollLabels {
-		pollLabel.PollLabelID = pollLabelSeqCursor.Next()
-	}
-	for _, label := range labels {
-		label.LabelID = labelSeqCursor.Next()
-	}
-
-	pollValues := []interface{}{}
-	pollContinentValues := []interface{}{}
-	pollCountryValues := []interface{}{}
-	pollStateValues := []interface{}{}
-	pollTownValues := []interface{}{}
-	pollDimDirValues := []interface{}{}
-	dimDirValues := []interface{}{}
-	dimensionValues := []interface{}{}
-	directionValues := []interface{}{}
-	pollLabelValues := []interface{}{}
-	labelValues := []interface{}{}
-
-	pollSqlStr := "INSERT INTO " + models.TableNames.Polls + "(" +
-		models.PollColumns.PollID + ", " +
-		models.PollColumns.PollDescription +
-		" ) VALUES %s"
-
-	for _, request := range batch.Data {
-		if request == nil {
-			continue
-		}
-
-		request.ResponseData = append(request.ResponseData, serialize.WNum(request.Poll.PollID))
-		request.Poll
-	}
-
-	vals := []interface{}{}
-	for _, row := range data {
-		vals = append(vals, row.FirstName, row.LastName, row.Age)
-	}
-
-	sqlStr := `INSERT INTO test(column1, column2, column3) VALUES %s`
-	sqlStr = ReplaceSQL(sqlStr, "(?, ?, ?)", len(data))
-
-	//Prepare and execute the statement
-	stmt, _ := db.Prepare(sqlStr)
-	res, _ := stmt.Exec(vals...)
+	return idRefs, ctxMapByLabelName
 }

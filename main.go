@@ -18,7 +18,7 @@ var (
 	compress = flag.Bool("compress", false, "Whether to enable transparent response compression")
 	proc     RequestProcessor
 	//db          *sql.DB
-	//directionId sequence.Sequence
+	//positionId sequence.Sequence
 )
 
 /**
@@ -45,7 +45,7 @@ func requestHandler(ctx *fasthttp.RequestCtx) {
 		//ctx.PostBody()
 		//var json = jsoniter.ConfigCompatibleWithStandardLibrary
 
-		//var data models.Direction
+		//var data models.Position
 
 		//json.Unmarshal(ctx.PostBody(), &data)
 
@@ -55,9 +55,9 @@ func requestHandler(ctx *fasthttp.RequestCtx) {
 
 		//var cursor *int = &cursorPosition
 
-		//data.DirectionDescription = "hello"
+		//data.PositionDescription = "hello"
 
-		//seqBlocks, err := directionId.GetBlocks(9)
+		//seqBlocks, err := positionId.GetBlocks(9)
 		//
 		//if err != nil {
 		//	fmt.Fprintf(ctx, "Error")

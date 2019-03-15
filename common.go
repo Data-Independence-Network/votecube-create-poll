@@ -1,6 +1,7 @@
 package main
 
 import (
+	"database/sql"
 	"fmt"
 	"github.com/valyala/fasthttp"
 	"log"
@@ -23,13 +24,26 @@ func ReplaceSQL(stmt, pattern string, len int) string {
 func denyBatch(
 	batch *RequestBatch,
 	err error,
+	db *sql.DB,
+	tx *sql.Tx,
 ) {
-	log.Fatal(err)
+	if err != nil {
+		log.Fatal(err)
+	}
+
 	for _, request := range batch.Data {
 		if request == nil {
 			continue
 		}
 		request.Ctx.SetStatusCode(fasthttp.StatusInternalServerError)
 		request.Done <- true
+	}
+
+	if tx != nil {
+		tx.Rollback()
+	}
+
+	if db != nil {
+		db.Close()
 	}
 }
